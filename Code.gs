@@ -8,14 +8,14 @@
 
 function onOpen() {
   SlidesApp.getUi()
-    .createMenu('Background Remover')
+    .createMenu('Gslides Background Remover')
     .addItem('Remove Background', 'showSidebar')
     .addToUi();
 }
 
 function showSidebar() {
   const html = HtmlService.createHtmlOutputFromFile('Sidebar')
-    .setTitle('Background Remover')
+    .setTitle('Gslides Background Remover')
     .setWidth(320);
   SlidesApp.getUi().showSidebar(html);
 }
