@@ -1,0 +1,246 @@
+<style>
+  body {
+    font-family: 'Google Sans', Roboto, Arial, sans-serif;
+    font-size: 13px;
+    color: #202124;
+    margin: 0;
+    padding: 12px;
+  }
+  h4 {
+    margin: 0 0 8px;
+    font-size: 13px;
+    font-weight: 600;
+  }
+  p.help {
+    color: #5f6368;
+    margin: 0 0 12px;
+    line-height: 1.4;
+  }
+  button {
+    width: 100%;
+    padding: 8px 10px;
+    margin-bottom: 8px;
+    border: none;
+    border-radius: 4px;
+    font-size: 13px;
+    cursor: pointer;
+    background: #1a73e8;
+    color: #fff;
+  }
+  button:disabled {
+    background: #e8eaed;
+    color: #9aa0a6;
+    cursor: not-allowed;
+  }
+  button.secondary {
+    background: #fff;
+    color: #1a73e8;
+    border: 1px solid #dadce0;
+  }
+  .status {
+    min-height: 18px;
+    color: #5f6368;
+    margin-bottom: 10px;
+  }
+  .error {
+    background: #fce8e6;
+    color: #c5221f;
+    border-radius: 4px;
+    padding: 8px;
+    margin-bottom: 10px;
+    display: none;
+    white-space: pre-wrap;
+  }
+  .preview-row {
+    display: flex;
+    gap: 8px;
+    margin-bottom: 10px;
+  }
+  .preview {
+    flex: 1;
+    min-width: 0;
+  }
+  .preview span {
+    display: block;
+    font-size: 11px;
+    color: #5f6368;
+    margin-bottom: 4px;
+    text-align: center;
+  }
+  .checker {
+    background-image:
+      linear-gradient(45deg, #ccc 25%, transparent 25%),
+      linear-gradient(-45deg, #ccc 25%, transparent 25%),
+      linear-gradient(45deg, transparent 75%, #ccc 75%),
+      linear-gradient(-45deg, transparent 75%, #ccc 75%);
+    background-size: 10px 10px;
+    background-position: 0 0, 0 5px, 5px -5px, -5px 0px;
+    border: 1px solid #dadce0;
+    border-radius: 4px;
+    overflow: hidden;
+  }
+  .checker img {
+    display: block;
+    width: 100%;
+    height: auto;
+  }
+  hr {
+    border: none;
+    border-top: 1px solid #e8eaed;
+    margin: 12px 0;
+  }
+</style>
+
+<h4>Background Remover</h4>
+<p class="help">Select a photo on the slide, load it below, then remove its background. Processing happens right here in your browser &mdash; nothing is uploaded anywhere.</p>
+
+<button id="loadBtn">1. Load Selected Image</button>
+<button id="removeBtn" disabled>2. Remove Background</button>
+<button id="insertBtn" disabled>3. Insert into Slide</button>
+<button id="resetBtn" class="secondary" style="display:none;">Start Over</button>
+
+<div id="status" class="status"></div>
+<div id="error" class="error"></div>
+
+<div class="preview-row">
+  <div class="preview" id="origWrap" style="display:none;">
+    <span>Original</span>
+    <div class="checker"><img id="origImg"></div>
+  </div>
+  <div class="preview" id="resultWrap" style="display:none;">
+    <span>Result</span>
+    <div class="checker"><img id="resultImg"></div>
+  </div>
+</div>
+
+<script type="module">
+  import { removeBackground } from 'https://cdn.jsdelivr.net/npm/@imgly/background-removal@1.7.0/dist/index.mjs';
+
+  const loadBtn = document.getElementById('loadBtn');
+  const removeBtn = document.getElementById('removeBtn');
+  const insertBtn = document.getElementById('insertBtn');
+  const resetBtn = document.getElementById('resetBtn');
+  const statusEl = document.getElementById('status');
+  const errorEl = document.getElementById('error');
+  const origWrap = document.getElementById('origWrap');
+  const origImg = document.getElementById('origImg');
+  const resultWrap = document.getElementById('resultWrap');
+  const resultImg = document.getElementById('resultImg');
+
+  let currentObjectId = null;
+  let originalDataUrl = null;
+  let processedDataUrl = null;
+
+  function setStatus(msg) {
+    statusEl.textContent = msg || '';
+  }
+
+  function showError(msg) {
+    errorEl.textContent = msg;
+    errorEl.style.display = 'block';
+  }
+
+  function clearError() {
+    errorEl.style.display = 'none';
+    errorEl.textContent = '';
+  }
+
+  function resetState() {
+    currentObjectId = null;
+    originalDataUrl = null;
+    processedDataUrl = null;
+    origWrap.style.display = 'none';
+    resultWrap.style.display = 'none';
+    removeBtn.disabled = true;
+    insertBtn.disabled = true;
+    resetBtn.style.display = 'none';
+    setStatus('');
+    clearError();
+  }
+
+  function runServer(fnName, ...args) {
+    return new Promise((resolve, reject) => {
+      google.script.run
+        .withSuccessHandler(resolve)
+        .withFailureHandler((err) => reject(new Error(err && err.message ? err.message : String(err))))
+        [fnName](...args);
+    });
+  }
+
+  function blobToDataUrl(blob) {
+    return new Promise((resolve, reject) => {
+      const reader = new FileReader();
+      reader.onload = () => resolve(reader.result);
+      reader.onerror = reject;
+      reader.readAsDataURL(blob);
+    });
+  }
+
+  async function loadSelection() {
+    clearError();
+    loadBtn.disabled = true;
+    setStatus('Loading selected image…');
+    try {
+      const info = await runServer('getSelectedImageInfo');
+      currentObjectId = info.objectId;
+      originalDataUrl = info.dataUrl;
+      processedDataUrl = null;
+
+      origImg.src = originalDataUrl;
+      origWrap.style.display = 'block';
+      resultWrap.style.display = 'none';
+      resetBtn.style.display = 'block';
+
+      removeBtn.disabled = false;
+      insertBtn.disabled = true;
+      setStatus('Image loaded. Click "Remove Background".');
+    } catch (err) {
+      setStatus('');
+      showError(err.message || String(err));
+    } finally {
+      loadBtn.disabled = false;
+    }
+  }
+
+  async function doRemoveBackground() {
+    if (!originalDataUrl) return;
+    clearError();
+    removeBtn.disabled = true;
+    setStatus('Removing background… the first run downloads a model and can take up to a minute.');
+    try {
+      const blob = await removeBackground(originalDataUrl);
+      processedDataUrl = await blobToDataUrl(blob);
+      resultImg.src = processedDataUrl;
+      resultWrap.style.display = 'block';
+      insertBtn.disabled = false;
+      setStatus('Done. Review the result, then click "Insert into Slide".');
+    } catch (err) {
+      showError('Background removal failed: ' + (err.message || err));
+      setStatus('');
+    } finally {
+      removeBtn.disabled = false;
+    }
+  }
+
+  async function doInsert() {
+    if (!processedDataUrl || !currentObjectId) return;
+    clearError();
+    insertBtn.disabled = true;
+    setStatus('Inserting into slide…');
+    try {
+      const res = await runServer('replaceImage', currentObjectId, processedDataUrl);
+      if (!res.success) throw new Error(res.error || 'Unknown error');
+      setStatus('Inserted! Select another image to continue.');
+      resetState();
+    } catch (err) {
+      showError(err.message || String(err));
+      setStatus('');
+      insertBtn.disabled = false;
+    }
+  }
+
+  loadBtn.addEventListener('click', loadSelection);
+  removeBtn.addEventListener('click', doRemoveBackground);
+  insertBtn.addEventListener('click', doInsert);
+  resetBtn.addEventListener('click', resetState);
+</script>
